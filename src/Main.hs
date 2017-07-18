@@ -6,22 +6,37 @@ import qualified Database.MongoDB as Mongo
 import System.Environment
 import Data.Text
 import BsonAeson
+import qualified Data.ByteString.Lazy as BS
 import qualified Data.Aeson as A
 
 app :: Application
-app request respond = do
-    let path = pathInfo request
-    _ <- putStr $ show path
+app request respond =
+    case pathInfo request of
+        ["sold"] -> soldPropertiesResponse >>= respond
+        _ -> notFound >>= respond
+
+notFound :: IO Response
+notFound = return $ responseLBS
+    status404
+    []
+    "Not found"
+
+soldPropertiesResponse :: IO Response
+soldPropertiesResponse = fmap (toJsonResponse . documentsToBS) allSoldProperties
+
+toJsonResponse :: BS.ByteString -> Response
+toJsonResponse = responseLBS
+    status200
+    [("Content-Type", "application/json")]
+
+documentsToBS :: [Mongo.Document] -> BS.ByteString
+documentsToBS documents = A.encode (fmap fromDocument documents)
+
+allSoldProperties :: IO [Mongo.Document]
+allSoldProperties = do
     pipe <- getAuthenticatedMongoPipe
     mongoDb <- getEnv "MONGO_DB"
-    properties <- Mongo.access pipe Mongo.UnconfirmedWrites (pack mongoDb) allSoldProperties
-    let jsonProperties = fmap fromDocument properties
-    let asByteString = A.encode jsonProperties
-    putStrLn "I've done some IO here"
-    respond $ responseLBS
-        status200
-        [("Content-Type", "application/json")]
-        asByteString
+    Mongo.access pipe Mongo.UnconfirmedWrites (pack mongoDb) allSoldPropertiesAction
 
 main :: IO ()
 main = do
@@ -30,8 +45,8 @@ main = do
 
 
 
-allSoldProperties :: Mongo.Action IO [Mongo.Document]
-allSoldProperties = Mongo.rest =<< Mongo.find (Mongo.select [] "soldProperties")
+allSoldPropertiesAction :: Mongo.Action IO [Mongo.Document]
+allSoldPropertiesAction = Mongo.rest =<< Mongo.find (Mongo.select [] "soldProperties")
 
 getAuthenticatedMongoPipe :: IO Mongo.Pipe
 getAuthenticatedMongoPipe = do
