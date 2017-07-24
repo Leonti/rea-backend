@@ -12,8 +12,12 @@ import qualified Data.Aeson as A
 app :: Application
 app request respond =
     case pathInfo request of
-        ["sold"] -> soldPropertiesResponse >>= respond
-        _ -> notFound >>= respond
+        x:_ | x == "sold" -> documentsToResponse allSoldProperties >>= respond
+        x:date:_ | x == "on-sale" -> documentsToResponse (onSalePropertiesForDate (unpack date)) >>= respond
+        path -> do
+            response <- notFound
+            _ <- print $ show path
+            respond response
 
 notFound :: IO Response
 notFound = return $ responseLBS
@@ -21,8 +25,8 @@ notFound = return $ responseLBS
     []
     "Not found"
 
-soldPropertiesResponse :: IO Response
-soldPropertiesResponse = fmap (toJsonResponse . documentsToBS) allSoldProperties
+documentsToResponse :: IO [Mongo.Document] -> IO Response
+documentsToResponse = fmap (toJsonResponse . documentsToBS)
 
 toJsonResponse :: BS.ByteString -> Response
 toJsonResponse = responseLBS
@@ -32,11 +36,17 @@ toJsonResponse = responseLBS
 documentsToBS :: [Mongo.Document] -> BS.ByteString
 documentsToBS documents = A.encode (fmap fromDocument documents)
 
-allSoldProperties :: IO [Mongo.Document]
-allSoldProperties = do
+actionToIO :: Mongo.Action IO a -> IO a
+actionToIO action = do
     pipe <- getAuthenticatedMongoPipe
     mongoDb <- getEnv "MONGO_DB"
-    Mongo.access pipe Mongo.UnconfirmedWrites (pack mongoDb) allSoldPropertiesAction
+    Mongo.access pipe Mongo.UnconfirmedWrites (pack mongoDb) action
+
+allSoldProperties :: IO [Mongo.Document]
+allSoldProperties = actionToIO allSoldPropertiesAction
+
+onSalePropertiesForDate :: String -> IO [Mongo.Document]
+onSalePropertiesForDate date = actionToIO onSalePropertiesForDateAction
 
 main :: IO ()
 main = do
@@ -44,9 +54,11 @@ main = do
     run 9050 app
 
 
-
 allSoldPropertiesAction :: Mongo.Action IO [Mongo.Document]
 allSoldPropertiesAction = Mongo.rest =<< Mongo.find (Mongo.select [] "soldProperties")
+
+onSalePropertiesForDateAction :: Mongo.Action IO [Mongo.Document]
+onSalePropertiesForDateAction = Mongo.rest =<< Mongo.find (Mongo.select [] "properties")
 
 getAuthenticatedMongoPipe :: IO Mongo.Pipe
 getAuthenticatedMongoPipe = do
