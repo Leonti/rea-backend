@@ -3,6 +3,7 @@ import Network.Wai
 import Network.HTTP.Types
 import Network.Wai.Handler.Warp (run)
 import qualified Database.MongoDB as Mongo
+import Database.MongoDB ((=:))
 import System.Environment
 import Data.Text
 import BsonAeson
@@ -14,6 +15,7 @@ app request respond =
     case pathInfo request of
         x:_ | x == "sold" -> documentsToResponse allSoldProperties >>= respond
         x:date:_ | x == "on-sale" -> documentsToResponse (onSalePropertiesForDate (unpack date)) >>= respond
+        x:_ | x == "dates" -> valuesToResponse propertyDates >>= respond
         path -> do
             response <- notFound
             _ <- print $ show path
@@ -28,6 +30,9 @@ notFound = return $ responseLBS
 documentsToResponse :: IO [Mongo.Document] -> IO Response
 documentsToResponse = fmap (toJsonResponse . documentsToBS)
 
+valuesToResponse :: IO [Mongo.Value] -> IO Response
+valuesToResponse = fmap (toJsonResponse . valuesToBS)
+
 toJsonResponse :: BS.ByteString -> Response
 toJsonResponse = responseLBS
     status200
@@ -35,6 +40,9 @@ toJsonResponse = responseLBS
 
 documentsToBS :: [Mongo.Document] -> BS.ByteString
 documentsToBS documents = A.encode (fmap fromDocument documents)
+
+valuesToBS :: [Mongo.Value] -> BS.ByteString
+valuesToBS values = A.encode (fmap fromBson values)
 
 actionToIO :: Mongo.Action IO a -> IO a
 actionToIO action = do
@@ -45,8 +53,11 @@ actionToIO action = do
 allSoldProperties :: IO [Mongo.Document]
 allSoldProperties = actionToIO allSoldPropertiesAction
 
+propertyDates :: IO [Mongo.Value]
+propertyDates = actionToIO propertyDatesAction
+
 onSalePropertiesForDate :: String -> IO [Mongo.Document]
-onSalePropertiesForDate date = actionToIO onSalePropertiesForDateAction
+onSalePropertiesForDate = actionToIO . onSalePropertiesForDateAction
 
 main :: IO ()
 main = do
@@ -57,8 +68,21 @@ main = do
 allSoldPropertiesAction :: Mongo.Action IO [Mongo.Document]
 allSoldPropertiesAction = Mongo.rest =<< Mongo.find (Mongo.select [] "soldProperties")
 
-onSalePropertiesForDateAction :: Mongo.Action IO [Mongo.Document]
-onSalePropertiesForDateAction = Mongo.rest =<< Mongo.find (Mongo.select [] "properties")
+onSalePropertiesForDateAction :: String -> Mongo.Action IO [Mongo.Document]
+onSalePropertiesForDateAction date = Mongo.rest =<< Mongo.find (Mongo.select
+    [ "extractedDate" =: date ] "properties")
+
+propertyDatesAction :: Mongo.Action IO [Mongo.Value]
+propertyDatesAction = Mongo.distinct "extractedDate" (Mongo.select [] "properties")
+
+--db.getCollection('properties').find({
+--    "extractedDate": {
+--        $lt: "2017-4-20"
+--    },
+--    $or: [
+--        {link: "/property-apartment-vic-richmond-125257370"}, {link: "/property-apartment-vic-richmond-124707306"}
+--    ]
+--    })
 
 getAuthenticatedMongoPipe :: IO Mongo.Pipe
 getAuthenticatedMongoPipe = do
