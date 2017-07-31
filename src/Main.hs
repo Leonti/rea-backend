@@ -6,15 +6,18 @@ import qualified Database.MongoDB as Mongo
 import Database.MongoDB ((=:))
 import System.Environment
 import Data.Text
+import Data.List
 import BsonAeson
 import qualified Data.ByteString.Lazy as BS
 import qualified Data.Aeson as A
+import qualified Data.Bson as B
 
 app :: Application
 app request respond =
     case pathInfo request of
         x:_ | x == "sold" -> documentsToResponse allSoldProperties >>= respond
         x:date:_ | x == "on-sale" -> documentsToResponse (onSalePropertiesForDate (unpack date)) >>= respond
+        x:date:_ | x == "new-on-sale" -> documentsToResponse (onSaleNewPropertiesForDate (unpack date)) >>= respond
         x:_ | x == "dates" -> valuesToResponse propertyDates >>= respond
         path -> do
             response <- notFound
@@ -59,6 +62,9 @@ propertyDates = actionToIO propertyDatesAction
 onSalePropertiesForDate :: String -> IO [Mongo.Document]
 onSalePropertiesForDate = actionToIO . onSalePropertiesForDateAction
 
+onSaleNewPropertiesForDate :: String -> IO [Mongo.Document]
+onSaleNewPropertiesForDate = actionToIO . onSaleNewPropertiesForDateAction
+
 main :: IO ()
 main = do
     putStrLn "http://localhost:9050/"
@@ -75,6 +81,29 @@ onSalePropertiesForDateAction date = Mongo.rest =<< Mongo.find (Mongo.select
 propertyDatesAction :: Mongo.Action IO [Mongo.Value]
 propertyDatesAction = Mongo.distinct "extractedDate" (Mongo.select [] "properties")
 
+onSaleExistingPropertiesBeforeDateAction :: String -> [String] -> Mongo.Action IO [Mongo.Document]
+onSaleExistingPropertiesBeforeDateAction date links = Mongo.rest =<< Mongo.find (Mongo.select
+    [ "extractedDate" =: ["$lt" =: date]
+    , "$or" =: fmap (\link -> ["link" =: link]) links
+     ] "properties") {Mongo.project = ["link" =: (1 :: Int), "_id" =: (0 :: Int)]}
+
+onSaleNewPropertiesForDateAction :: String -> Mongo.Action IO [Mongo.Document]
+onSaleNewPropertiesForDateAction date = do
+    propertiesForDate <- onSalePropertiesForDateAction date
+    let linksForTheDate = fmap (extractField "link") propertiesForDate
+    existingProperties <- onSaleExistingPropertiesBeforeDateAction date linksForTheDate
+    let existingLinks = fmap (extractField "link") existingProperties
+    let newLinks = linksForTheDate \\ existingLinks
+    let newProperties = Data.List.filter (\p -> extractField "link" p `Data.List.elem` newLinks) propertiesForDate
+    return newProperties
+
+extractField :: String -> B.Document -> String
+extractField label doc = fieldToString $ B.valueAt (pack label) doc
+
+fieldToString :: B.Value -> String
+fieldToString (B.String s) = unpack s
+fieldToString _ = error "Value is not a string"
+
 --db.getCollection('properties').find({
 --    "extractedDate": {
 --        $lt: "2017-4-20"
@@ -82,7 +111,7 @@ propertyDatesAction = Mongo.distinct "extractedDate" (Mongo.select [] "propertie
 --    $or: [
 --        {link: "/property-apartment-vic-richmond-125257370"}, {link: "/property-apartment-vic-richmond-124707306"}
 --    ]
---    })
+--    }, {link: 1, _id: 0})
 
 getAuthenticatedMongoPipe :: IO Mongo.Pipe
 getAuthenticatedMongoPipe = do
