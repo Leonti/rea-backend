@@ -5,17 +5,20 @@ import Network.Wai.Handler.Warp (run)
 import qualified Database.MongoDB as Mongo
 import Database.MongoDB ((=:))
 import System.Environment
-import Data.Text
+import Data.Text (unpack, pack)
 import Data.List
 import BsonAeson
+import Data.Word8 (isSpace, toLower)
+import Data.ByteString.Lazy (ByteString)
 import qualified Data.ByteString.Lazy as BS
 import qualified Data.Aeson as A
 import qualified Data.Bson as B
+import Token (doJwtVerify)
 
 app :: Application
 app request respond =
     case pathInfo request of
-        x:_ | x == "sold" -> documentsToResponse allSoldProperties >>= respond
+        x:_ | x == "sold" -> withAuth request (documentsToResponse allSoldProperties) >>= respond
         x:date:_ | x == "on-sale" -> documentsToResponse (onSalePropertiesForDate (unpack date)) >>= respond
         x:date:_ | x == "new-on-sale" -> documentsToResponse (onSaleNewPropertiesForDate (unpack date)) >>= respond
         x:_ | x == "dates" -> valuesToResponse propertyDates >>= respond
@@ -30,6 +33,18 @@ notFound = return $ responseLBS
     []
     "Not found"
 
+unauthorized :: IO Response
+unauthorized = return $ responseLBS
+    status401
+    []
+    "Unauthorized"
+
+withAuth :: Request -> IO Response -> IO Response
+withAuth request authorizedResponse =
+    case Prelude.lookup hAuthorization (requestHeaders request) of
+        Just authorization -> authorizedResponse
+        Nothing -> unauthorized
+
 documentsToResponse :: IO [Mongo.Document] -> IO Response
 documentsToResponse = fmap (toJsonResponse . documentsToBS)
 
@@ -41,10 +56,10 @@ toJsonResponse = responseLBS
     status200
     [("Content-Type", "application/json")]
 
-documentsToBS :: [Mongo.Document] -> BS.ByteString
+documentsToBS :: [Mongo.Document] -> ByteString
 documentsToBS documents = A.encode (fmap fromDocument documents)
 
-valuesToBS :: [Mongo.Value] -> BS.ByteString
+valuesToBS :: [Mongo.Value] -> ByteString
 valuesToBS values = A.encode (fmap fromBson values)
 
 actionToIO :: Mongo.Action IO a -> IO a
@@ -122,3 +137,10 @@ getAuthenticatedMongoPipe = do
     pipe <- Mongo.connect (Mongo.readHostPort mongoHostPort)
     _ <- Mongo.access pipe Mongo.UnconfirmedWrites (pack mongoDb) $ Mongo.auth (pack mongoUsername) (pack mongoPassword)
     return pipe
+
+extractBearerAuth :: ByteString -> Maybe ByteString
+extractBearerAuth bs =
+    let (x, y) = BS.break isSpace bs
+    in if BS.map toLower x == "bearer"
+        then Just $ BS.dropWhile isSpace y
+        else Nothing
