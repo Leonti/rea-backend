@@ -1,5 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
-module Token(verifyJwt, AuthConfig) where
+module Token(verifyJwt, AuthConfig(..)) where
 
 import Crypto.JWT (
     JWKSet(..),
@@ -50,18 +50,3 @@ verifyJwt config tokenString = do
 
 jwksFix :: ByteString -> ByteString
 jwksFix = replace (L.toStrict "x5t") (L.toStrict "x5t_unused") . L.toStrict
-
-printJWK :: IO ()
-printJWK = do
-    jwksStringMyob <- L.readFile "test_jwk_myob.json"
-    jwksStringMine <- jwksFix <$> L.readFile "test_jwk.json"
---    jwksHttpString <- simpleHttp "https://login.myob.com/discovery/keys"
-    let parsedJwksMyob = decode jwksStringMyob :: Maybe JWKSet
-    let parsedJwksMine = decode jwksStringMine :: Maybe JWKSet
-    let parsedJwksMineEither = eitherDecode jwksStringMine :: Either String JWKSet
---    _ <- print jwksStringMyob
---    _ <- print jwksStringMine
---    _ <- print parsedJwksMyob
-    print parsedJwksMineEither
-
---verify

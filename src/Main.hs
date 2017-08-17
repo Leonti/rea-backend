@@ -9,11 +9,11 @@ import Data.Text (unpack, pack)
 import Data.List
 import BsonAeson
 import Data.Word8 (isSpace, toLower)
-import Data.ByteString.Lazy (ByteString)
+import Data.ByteString.Lazy (ByteString, fromStrict)
 import qualified Data.ByteString.Lazy as BS
 import qualified Data.Aeson as A
 import qualified Data.Bson as B
-import Token (doJwtVerify)
+import Token (AuthConfig(..), verifyJwt)
 
 app :: Application
 app request respond =
@@ -39,10 +39,28 @@ unauthorized = return $ responseLBS
     []
     "Unauthorized"
 
+allowedSubs :: [String]
+allowedSubs = ["google-oauth2|106496533429095347725"]
+
+authConfig :: AuthConfig
+authConfig = AuthConfig
+            { jwksUrl = "https://leonti.au.auth0.com/.well-known/jwks.json"
+            , aud = "home-api"
+            }
+
 withAuth :: Request -> IO Response -> IO Response
 withAuth request authorizedResponse =
     case Prelude.lookup hAuthorization (requestHeaders request) of
-        Just authorization -> authorizedResponse
+        Just authorization -> case extractBearerAuth $ fromStrict authorization of
+            Just token -> do
+                subEither <- verifyJwt authConfig token
+                case subEither of
+                    Right sub -> if sub `elem` allowedSubs then
+                            authorizedResponse
+                        else
+                            unauthorized
+                    Left e -> unauthorized
+            Nothing -> unauthorized
         Nothing -> unauthorized
 
 documentsToResponse :: IO [Mongo.Document] -> IO Response
