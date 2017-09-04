@@ -19,9 +19,9 @@ app :: Application
 app request respond =
     case pathInfo request of
         x:_ | x == "sold" -> withAuth request (documentsToResponse allSoldProperties) >>= respond
-        x:date:_ | x == "on-sale" -> documentsToResponse (onSalePropertiesForDate (unpack date)) >>= respond
-        x:date:_ | x == "new-on-sale" -> documentsToResponse (onSaleNewPropertiesForDate (unpack date)) >>= respond
-        x:_ | x == "dates" -> valuesToResponse propertyDates >>= respond
+        x:date:_ | x == "on-sale" -> withAuth request (documentsToResponse (onSalePropertiesForDate (unpack date))) >>= respond
+        x:date:_ | x == "new-on-sale" -> withAuth request (documentsToResponse (onSaleNewPropertiesForDate (unpack date))) >>= respond
+        x:_ | x == "dates" -> withAuth request (valuesToResponse propertyDates) >>= respond
         path -> do
             response <- notFound
             _ <- print $ show path
