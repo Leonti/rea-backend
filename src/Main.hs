@@ -45,7 +45,7 @@ allowedSubs = ["google-oauth2|106496533429095347725"]
 authConfig :: AuthConfig
 authConfig = AuthConfig
             { jwksUrl = "https://leonti.au.auth0.com/.well-known/jwks.json"
-            , aud = "home-api"
+            , aud = "rea-backend"
             }
 
 withAuth :: Request -> IO Response -> IO Response
