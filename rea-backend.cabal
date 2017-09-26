@@ -35,3 +35,4 @@ executable rea-backend
                         , http-conduit >= 2.2.3.2
                         , stringsearch >= 0.3.6.6
                         , lens-tutorial >= 1.0.3
+                        , case-insensitive >= 1.2.0.6

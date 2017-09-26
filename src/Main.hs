@@ -1,28 +1,31 @@
 {-# LANGUAGE OverloadedStrings #-}
-import Network.Wai
-import Network.HTTP.Types
-import Network.Wai.Handler.Warp (run)
-import qualified Database.MongoDB as Mongo
-import Database.MongoDB ((=:))
-import System.Environment
-import Data.Text (unpack, pack)
-import Data.List
-import BsonAeson
-import Data.Word8 (isSpace, toLower)
-import Data.ByteString.Lazy (ByteString, fromStrict)
-import qualified Data.ByteString.Lazy as BS
-import qualified Data.Aeson as A
-import qualified Data.Bson as B
-import Token (AuthConfig(..), verifyJwt)
+import           BsonAeson
+import qualified Data.Aeson                as A
+import qualified Data.Bson                 as B
+import           Data.ByteString.Lazy      (ByteString, fromStrict)
+import qualified Data.ByteString.Lazy      as BS
+import qualified Data.CaseInsensitive      as CI
+import           Data.List
+import           Data.Text                 (pack, unpack)
+import           Data.Word8                (isSpace, toLower)
+import           Database.MongoDB          ((=:))
+import qualified Database.MongoDB          as Mongo
+import           Network.HTTP.Types
+import qualified Network.HTTP.Types.Header as Header
+import           Network.Wai
+import           Network.Wai.Handler.Warp  (run)
+import           System.Environment
+import           Token                     (AuthConfig (..), verifyJwt)
 
 app :: Application
 app request respond =
-    case pathInfo request of
-        x:_ | x == "sold" -> withAuth request (documentsToResponse allSoldProperties) >>= respond
-        x:date:_ | x == "on-sale" -> withAuth request (documentsToResponse (onSalePropertiesForDate (unpack date))) >>= respond
-        x:date:_ | x == "new-on-sale" -> withAuth request (documentsToResponse (onSaleNewPropertiesForDate (unpack date))) >>= respond
-        x:_ | x == "dates" -> withAuth request (valuesToResponse propertyDates) >>= respond
-        path -> do
+    case (requestMethod request, pathInfo request) of
+        ("GET", x:_) | x == "sold" -> withAuth request (documentsToResponse allSoldProperties) >>= respond
+        ("GET", x:date:_) | x == "on-sale" -> withAuth request (documentsToResponse (onSalePropertiesForDate (unpack date))) >>= respond
+        ("GET", x:date:_) | x == "new-on-sale" -> withAuth request (documentsToResponse (onSaleNewPropertiesForDate (unpack date))) >>= respond
+        ("GET", x:_) | x == "on-sale-dates" -> withAuth request (valuesToResponse onSalePropertyDates) >>= respond
+        ("OPTIONS", _) -> optionsResponse >>= respond
+        (_, path) -> do
             response <- notFound
             _ <- print $ show path
             respond response
@@ -33,10 +36,23 @@ notFound = return $ responseLBS
     []
     "Not found"
 
+corsHeaders :: [Header]
+corsHeaders =
+  [ (CI.mk "Access-Control-Allow-Methods", "OPTIONS, GET, POST")
+  , (CI.mk "Access-Control-Allow-Origin", "*")
+  , (CI.mk "Access-Control-Allow-Headers", "authorization")
+  ]
+
+optionsResponse :: IO Response
+optionsResponse = return $ responseLBS
+    status200
+    corsHeaders
+    ""
+
 unauthorized :: IO Response
 unauthorized = return $ responseLBS
     status401
-    []
+    corsHeaders
     "Unauthorized"
 
 allowedSubs :: [String]
@@ -72,7 +88,7 @@ valuesToResponse = fmap (toJsonResponse . valuesToBS)
 toJsonResponse :: BS.ByteString -> Response
 toJsonResponse = responseLBS
     status200
-    [("Content-Type", "application/json")]
+    (("Content-Type", "application/json") : corsHeaders)
 
 documentsToBS :: [Mongo.Document] -> ByteString
 documentsToBS documents = A.encode (fmap fromDocument documents)
@@ -89,8 +105,8 @@ actionToIO action = do
 allSoldProperties :: IO [Mongo.Document]
 allSoldProperties = actionToIO allSoldPropertiesAction
 
-propertyDates :: IO [Mongo.Value]
-propertyDates = actionToIO propertyDatesAction
+onSalePropertyDates :: IO [Mongo.Value]
+onSalePropertyDates = actionToIO onSalePropertyDatesAction
 
 onSalePropertiesForDate :: String -> IO [Mongo.Document]
 onSalePropertiesForDate = actionToIO . onSalePropertiesForDateAction
@@ -111,8 +127,8 @@ onSalePropertiesForDateAction :: String -> Mongo.Action IO [Mongo.Document]
 onSalePropertiesForDateAction date = Mongo.rest =<< Mongo.find (Mongo.select
     [ "extractedDate" =: date ] "properties")
 
-propertyDatesAction :: Mongo.Action IO [Mongo.Value]
-propertyDatesAction = Mongo.distinct "extractedDate" (Mongo.select [] "properties")
+onSalePropertyDatesAction :: Mongo.Action IO [Mongo.Value]
+onSalePropertyDatesAction = Mongo.distinct "extractedDate" (Mongo.select [] "properties")
 
 onSaleExistingPropertiesBeforeDateAction :: String -> [String] -> Mongo.Action IO [Mongo.Document]
 onSaleExistingPropertiesBeforeDateAction date links = Mongo.rest =<< Mongo.find (Mongo.select
@@ -135,7 +151,7 @@ extractField label doc = fieldToString $ B.valueAt (pack label) doc
 
 fieldToString :: B.Value -> String
 fieldToString (B.String s) = unpack s
-fieldToString _ = error "Value is not a string"
+fieldToString _            = error "Value is not a string"
 
 --db.getCollection('properties').find({
 --    "extractedDate": {
