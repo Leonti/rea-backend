@@ -5,3 +5,7 @@ services:
 
 script:
   - bash build.sh
+
+cache:
+  directories:
+  - .stack-work
