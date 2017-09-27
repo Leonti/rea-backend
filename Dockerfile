@@ -1,4 +1,4 @@
-FROM mesosphere/aws-cli
+FROM alpine:3.6
 
 RUN apk add --no-cache --update curl zip bash
 
