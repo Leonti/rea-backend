@@ -21,6 +21,7 @@ app :: Application
 app request respond =
     case (requestMethod request, pathInfo request) of
         ("GET", x:_) | x == "sold" -> withAuth request (documentsToResponse allSoldProperties) >>= respond
+        ("GET", [x]) | x == "on-sale" -> withAuth request (documentsToResponse allOnSaleProperties) >>= respond
         ("GET", x:date:_) | x == "on-sale" -> withAuth request (documentsToResponse (onSalePropertiesForDate (unpack date))) >>= respond
         ("GET", x:date:_) | x == "new-on-sale" -> withAuth request (documentsToResponse (onSaleNewPropertiesForDate (unpack date))) >>= respond
         ("GET", x:_) | x == "on-sale-dates" -> withAuth request (valuesToResponse onSalePropertyDates) >>= respond
@@ -105,6 +106,9 @@ actionToIO action = do
 allSoldProperties :: IO [Mongo.Document]
 allSoldProperties = actionToIO allSoldPropertiesAction
 
+allOnSaleProperties :: IO [Mongo.Document]
+allOnSaleProperties = actionToIO allOnSalePropertiesAction
+
 onSalePropertyDates :: IO [Mongo.Value]
 onSalePropertyDates = actionToIO onSalePropertyDatesAction
 
@@ -121,7 +125,10 @@ main = do
 
 
 allSoldPropertiesAction :: Mongo.Action IO [Mongo.Document]
-allSoldPropertiesAction = Mongo.rest =<< Mongo.find (Mongo.select [] "soldProperties")
+allSoldPropertiesAction = Mongo.rest =<< Mongo.find (Mongo.select [] "processedSoldProperties")
+
+allOnSalePropertiesAction :: Mongo.Action IO [Mongo.Document]
+allOnSalePropertiesAction = Mongo.rest =<< Mongo.find (Mongo.select [] "processedOnSaleProperties")
 
 onSalePropertiesForDateAction :: String -> Mongo.Action IO [Mongo.Document]
 onSalePropertiesForDateAction date = Mongo.rest =<< Mongo.find (Mongo.select
