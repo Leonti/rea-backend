@@ -1,3 +1,7 @@
 .stack-work/
 .DS_Store
 config.sh
+rea-backend.aux
+rea-backend.hp
+rea-backend.prof
+rea-backend.ps

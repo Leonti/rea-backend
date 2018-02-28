@@ -1,15 +1,21 @@
+{-# LANGUAGE DeriveAnyClass    #-}
+{-# LANGUAGE DeriveGeneric     #-}
 {-# LANGUAGE OverloadedStrings #-}
 import           BsonAeson
 import qualified Data.Aeson                as A
 import qualified Data.Bson                 as B
-import           Data.ByteString.Lazy      (ByteString, fromStrict)
+import           Data.ByteString.Lazy      (fromStrict)
 import qualified Data.ByteString.Lazy      as BS
 import qualified Data.CaseInsensitive      as CI
 import           Data.List
-import           Data.Text                 (pack, unpack)
+import           Data.Maybe                (fromJust)
+import           Data.Text                 (Text, pack, replace, unpack)
+import           Data.Text.Encoding        (decodeUtf8)
 import           Data.Word8                (isSpace, toLower)
 import           Database.MongoDB          ((=:))
 import qualified Database.MongoDB          as Mongo
+import           Db                        (runQuery)
+import           GHC.Generics              (Generic)
 import           Network.HTTP.Types
 import qualified Network.HTTP.Types.Header as Header
 import           Network.Wai
@@ -25,11 +31,18 @@ app request respond =
         ("GET", x:date:_) | x == "on-sale" -> withAuth request (documentsToResponse (onSalePropertiesForDate (unpack date))) >>= respond
         ("GET", x:date:_) | x == "new-on-sale" -> withAuth request (documentsToResponse (onSaleNewPropertiesForDate (unpack date))) >>= respond
         ("GET", x:_) | x == "on-sale-dates" -> withAuth request (valuesToResponse onSalePropertyDates) >>= respond
+        ("POST", ["graphql"]) -> graphQl request >>= respond
         ("OPTIONS", _) -> optionsResponse >>= respond
         (_, path) -> do
             response <- notFound
             _ <- print $ show path
             respond response
+
+test :: IO ()
+test = do
+  docs <- allOnSaleProperties
+  response <- A.encode <$> runQuery docs "{ onSaleProperties { location geo { latitude } } }"
+  print response
 
 notFound :: IO Response
 notFound = return $ responseLBS
@@ -41,7 +54,7 @@ corsHeaders :: [Header]
 corsHeaders =
   [ (CI.mk "Access-Control-Allow-Methods", "OPTIONS, GET, POST")
   , (CI.mk "Access-Control-Allow-Origin", "*")
-  , (CI.mk "Access-Control-Allow-Headers", "authorization")
+  , (CI.mk "Access-Control-Allow-Headers", "authorization, content-type")
   ]
 
 optionsResponse :: IO Response
@@ -64,6 +77,21 @@ authConfig = AuthConfig
             { jwksUrl = "https://leonti.au.auth0.com/.well-known/jwks.json"
             , aud = "rea-backend"
             }
+
+newtype GraphQlQuery = GraphQlQuery
+  { query :: Text
+  } deriving (Show, Generic, A.FromJSON)
+
+graphQl :: Request -> IO Response
+graphQl request = do
+  body <- requestBody request
+  let maybeQuery = A.decode (fromStrict body) :: Maybe GraphQlQuery
+  docs <- allOnSaleProperties
+  let rawQuery = query $ fromJust maybeQuery
+  let replaced = replace "query " "" rawQuery
+  print replaced
+  response <- A.encode <$> runQuery docs replaced
+  return $ toJsonResponse response
 
 withAuth :: Request -> IO Response -> IO Response
 withAuth request authorizedResponse =
@@ -91,10 +119,10 @@ toJsonResponse = responseLBS
     status200
     (("Content-Type", "application/json") : corsHeaders)
 
-documentsToBS :: [Mongo.Document] -> ByteString
+documentsToBS :: [Mongo.Document] -> BS.ByteString
 documentsToBS documents = A.encode (fmap fromDocument documents)
 
-valuesToBS :: [Mongo.Value] -> ByteString
+valuesToBS :: [Mongo.Value] -> BS.ByteString
 valuesToBS values = A.encode (fmap fromBson values)
 
 actionToIO :: Mongo.Action IO a -> IO a
@@ -179,7 +207,7 @@ getAuthenticatedMongoPipe = do
     _ <- Mongo.access pipe Mongo.UnconfirmedWrites (pack mongoDb) $ Mongo.auth (pack mongoUsername) (pack mongoPassword)
     return pipe
 
-extractBearerAuth :: ByteString -> Maybe ByteString
+extractBearerAuth :: BS.ByteString -> Maybe BS.ByteString
 extractBearerAuth bs =
     let (x, y) = BS.break isSpace bs
     in if BS.map toLower x == "bearer"

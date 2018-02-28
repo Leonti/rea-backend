@@ -36,3 +36,5 @@ executable rea-backend
                         , stringsearch >= 0.3.6.6
                         , lens-tutorial >= 1.0.3
                         , case-insensitive >= 1.2.0.6
+                        , protolude == 0.2
+                        , graphql-api == 0.2.0
