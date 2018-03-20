@@ -1,108 +1,78 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE TypeOperators #-}
-{-# LANGUAGE DataKinds #-}
+module Db where
 
-module Db(runQuery) where
-
-import Data.Text (Text, pack)
-import Data.Maybe(fromJust)
-import Data.Monoid ((<>))
-import Protolude
-
-import GraphQL
-import GraphQL.API
-import GraphQL.Resolver (Handler, (:<>)(..))
-
+import           BsonAeson
 import           Database.MongoDB          ((=:))
 import qualified Database.MongoDB          as Mongo
+import qualified Data.ByteString.Lazy      as BS
+import qualified Data.Aeson                as A
+import           System.Environment(getEnv)
+import           Data.Text                 (Text, pack, replace, unpack)
+import           Data.List
+
+allOnSaleProperties :: IO [Mongo.Document]
+allOnSaleProperties = actionToIO allOnSalePropertiesAction
+
+allSoldProperties :: IO [Mongo.Document]
+allSoldProperties = actionToIO allSoldPropertiesAction
+
+onSalePropertyDates :: IO [Mongo.Value]
+onSalePropertyDates = actionToIO onSalePropertyDatesAction
+
+onSalePropertiesForDate :: String -> IO [Mongo.Document]
+onSalePropertiesForDate = actionToIO . onSalePropertiesForDateAction
+
+onSaleNewPropertiesForDate :: String -> IO [Mongo.Document]
+onSaleNewPropertiesForDate = actionToIO . onSaleNewPropertiesForDateAction   
 
 
-type Hello = Object "Hello" '[]
-  '[ Argument "who" Text :> Field "greeting" Text ]
+allSoldPropertiesAction :: Mongo.Action IO [Mongo.Document]
+allSoldPropertiesAction = Mongo.rest =<< Mongo.find (Mongo.select [] "processedSoldProperties")
 
-type Geo = Object "Geo" '[]
-  '[Field "latitude" Double
-  , Field "longitude" Double]
+allOnSalePropertiesAction :: Mongo.Action IO [Mongo.Document]
+allOnSalePropertiesAction = Mongo.rest =<< Mongo.find (Mongo.select [] "processedOnSaleProperties")
 
-type Distances = Object "Distances" '[]
-  '[Field "toColes" Int32
-  , Field "toWoolworth" Int32
-  , Field "toAldi" Int32
-  , Field "toTrain" Int32
-  , Field "toTram" Int32
-  , Field "toBus" Int32
-  ]
+onSalePropertiesForDateAction :: String -> Mongo.Action IO [Mongo.Document]
+onSalePropertiesForDateAction date = Mongo.rest =<< Mongo.find (Mongo.select
+    [ "extractedDate" =: date ] "properties")
 
-type DatePrice = Object "DatePrice" '[]
-  '[Field "price" Int32
-  , Field "timestamp" Double]
+onSalePropertyDatesAction :: Mongo.Action IO [Mongo.Value]
+onSalePropertyDatesAction = Mongo.distinct "extractedDate" (Mongo.select [] "properties")
 
-type OnSalePropertyList = Object "OnSalePropertyList" '[]
-  '[Field "onSaleProperties" (List OnSaleProperty)]
+onSaleExistingPropertiesBeforeDateAction :: String -> [String] -> Mongo.Action IO [Mongo.Document]
+onSaleExistingPropertiesBeforeDateAction date links = Mongo.rest =<< Mongo.find (Mongo.select
+    [ "extractedDate" =: ["$lt" =: date]
+    , "$or" =: fmap (\link -> ["link" =: link]) links
+     ] "properties") {Mongo.project = ["link" =: (1 :: Int), "_id" =: (0 :: Int)]}
 
-geoHandler :: Mongo.Document -> Handler IO Geo
-geoHandler doc = pure
-  (   pure (fromJust $ Mongo.lookup "latitude" doc)
-  :<> pure (fromJust $ Mongo.lookup "longitude" doc))
+onSaleNewPropertiesForDateAction :: String -> Mongo.Action IO [Mongo.Document]
+onSaleNewPropertiesForDateAction date = do
+    propertiesForDate <- onSalePropertiesForDateAction date
+    let linksForTheDate = fmap (Mongo.lookup "link") propertiesForDate
+    existingProperties <- onSaleExistingPropertiesBeforeDateAction date linksForTheDate
+    let existingLinks = fmap (Mongo.lookup "link") existingProperties
+    let newLinks = linksForTheDate \\ existingLinks
+    let newProperties = Data.List.filter (\p -> Mongo.lookup "link" p `Data.List.elem` newLinks) propertiesForDate
+    return newProperties
 
-distancesHandler :: Mongo.Document -> Handler IO Distances
-distancesHandler doc = pure
-  (   pure (fromJust $ Mongo.lookup "toColes" doc)
-  :<> pure (fromJust $ Mongo.lookup "toWoolworth" doc)
-  :<> pure (fromJust $ Mongo.lookup "toAldi" doc)
-  :<> pure (fromJust $ Mongo.lookup "toTrain" doc)
-  :<> pure (fromJust $ Mongo.lookup "toTram" doc)
-  :<> pure (fromJust $ Mongo.lookup "toBus" doc)
-  )
+documentsToBS :: [Mongo.Document] -> BS.ByteString
+documentsToBS documents = A.encode (fmap fromDocument documents)
 
-datePriceHandler :: Mongo.Document -> Handler IO DatePrice
-datePriceHandler doc = pure (priceHandler :<> timestampHandler)
-  where
-    priceHandler = pure (fromJust $ Mongo.lookup "price" doc)
-    timestampHandler = pure (fromJust $ Mongo.lookup "timestamp" doc)
+valuesToBS :: [Mongo.Value] -> BS.ByteString
+valuesToBS values = A.encode (fmap fromBson values)
 
-type OnSaleProperty = Object "OnSaleProperty" '[]
-  '[Field "distances" (Maybe Distances)
-  , Field "geo" (Maybe Geo)
-  , Field "link" Text
-  , Field "extractedDate" Text
-  , Field "extractedAt" Double
-  , Field "bedrooms" Int32
-  , Field "bathrooms" Int32
-  , Field "cars" Int32
-  , Field "location" Text
-  , Field "datesPrices" (List DatePrice)
-  , Field "isSold" Bool
-  , Field "salePrice" (Maybe Int32)
-  , Field "soldAt" (Maybe Text)
-  ]
-onSalePropertyHandler :: Mongo.Document -> Handler IO OnSaleProperty
-onSalePropertyHandler doc = pure
-  (   pure (distancesHandler <$> Mongo.lookup "distances" doc)
-  :<> pure (geoHandler <$> Mongo.lookup "geo" doc)
-  :<> pure (fromJust $ Mongo.lookup "link" doc)
-  :<> pure (fromJust $ Mongo.lookup "extractedDate" doc)
-  :<> pure (fromJust $ Mongo.lookup "extractedAt" doc)
-  :<> pure (fromJust $ Mongo.lookup "bedrooms" doc)
-  :<> pure (fromJust $ Mongo.lookup "bathrooms" doc)
-  :<> pure (fromJust $ Mongo.lookup "cars" doc)
-  :<> pure (fromJust $ Mongo.lookup "location" doc)
-  :<> pure (datePriceHandler <$> fromJust (Mongo.lookup "datesPrices" doc))
-  :<> pure (fromJust $ Mongo.lookup "isSold" doc)
-  :<> pure (pure <$> Mongo.lookup "salePrice" doc)
-  :<> pure (pure <$> Mongo.lookup "soldAt" doc)
-  )
+actionToIO :: Mongo.Action IO a -> IO a
+actionToIO action = do
+    pipe <- getAuthenticatedMongoPipe
+    mongoDb <- getEnv "MONGO_DB"
+    Mongo.access pipe Mongo.UnconfirmedWrites (pack mongoDb) action
 
-onSalePropertyListHandler :: [Mongo.Document] -> Handler IO OnSalePropertyList
-onSalePropertyListHandler docs = pure $ do
-  pure $ fmap onSalePropertyHandler docs
-
-hello :: Handler IO Hello
-hello = pure (\who -> pure ("Hello " <> who))
-
-runHelloQuery :: Text -> IO Response
-runHelloQuery = interpretAnonymousQuery @Hello hello
-
-runQuery :: [Mongo.Document] -> Text -> IO Response
-runQuery docs = interpretAnonymousQuery @OnSalePropertyList (onSalePropertyListHandler docs)
+getAuthenticatedMongoPipe :: IO Mongo.Pipe
+getAuthenticatedMongoPipe = do
+    mongoHostPort <- getEnv "MONGO_HOST_PORT"
+    mongoDb <- getEnv "MONGO_DB"
+    mongoUsername <- getEnv "MONGO_USERNAME"
+    mongoPassword <- getEnv "MONGO_PASSWORD"
+    pipe <- Mongo.connect (Mongo.readHostPort mongoHostPort)
+    _ <- Mongo.access pipe Mongo.UnconfirmedWrites (pack mongoDb) $ Mongo.auth (pack mongoUsername) (pack mongoPassword)
+    return pipe    
