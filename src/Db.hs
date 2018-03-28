@@ -2,13 +2,14 @@
 module Db where
 
 import           BsonAeson
-import           Database.MongoDB          ((=:))
-import qualified Database.MongoDB          as Mongo
-import qualified Data.ByteString.Lazy      as BS
-import qualified Data.Aeson                as A
-import           System.Environment(getEnv)
-import           Data.Text                 (Text, pack, replace, unpack)
+import qualified Data.Aeson           as A
+import qualified Data.ByteString.Lazy as BS
 import           Data.List
+import           Data.Maybe           (fromJust)
+import           Data.Text            (Text, pack)
+import           Database.MongoDB     ((=:))
+import qualified Database.MongoDB     as Mongo
+import           System.Environment   (getEnv)
 
 allOnSaleProperties :: IO [Mongo.Document]
 allOnSaleProperties = actionToIO allOnSalePropertiesAction
@@ -16,15 +17,17 @@ allOnSaleProperties = actionToIO allOnSalePropertiesAction
 allSoldProperties :: IO [Mongo.Document]
 allSoldProperties = actionToIO allSoldPropertiesAction
 
-onSalePropertyDates :: IO [Mongo.Value]
-onSalePropertyDates = actionToIO onSalePropertyDatesAction
+onSalePropertyDates :: IO [Text]
+onSalePropertyDates =  fmap (\x -> textValue <$> x) (actionToIO onSalePropertyDatesAction)
+
+textValue :: Mongo.Value -> Text
+textValue v = fromJust (Mongo.cast' v :: Maybe Text)
 
 onSalePropertiesForDate :: String -> IO [Mongo.Document]
 onSalePropertiesForDate = actionToIO . onSalePropertiesForDateAction
 
 onSaleNewPropertiesForDate :: String -> IO [Mongo.Document]
-onSaleNewPropertiesForDate = actionToIO . onSaleNewPropertiesForDateAction   
-
+onSaleNewPropertiesForDate = actionToIO . onSaleNewPropertiesForDateAction
 
 allSoldPropertiesAction :: Mongo.Action IO [Mongo.Document]
 allSoldPropertiesAction = Mongo.rest =<< Mongo.find (Mongo.select [] "processedSoldProperties")
@@ -34,7 +37,7 @@ allOnSalePropertiesAction = Mongo.rest =<< Mongo.find (Mongo.select [] "processe
 
 onSalePropertiesForDateAction :: String -> Mongo.Action IO [Mongo.Document]
 onSalePropertiesForDateAction date = Mongo.rest =<< Mongo.find (Mongo.select
-    [ "extractedDate" =: date ] "properties")
+    [ "extractedDate" =: date ] "processedOnSaleProperties")
 
 onSalePropertyDatesAction :: Mongo.Action IO [Mongo.Value]
 onSalePropertyDatesAction = Mongo.distinct "extractedDate" (Mongo.select [] "properties")
@@ -75,4 +78,4 @@ getAuthenticatedMongoPipe = do
     mongoPassword <- getEnv "MONGO_PASSWORD"
     pipe <- Mongo.connect (Mongo.readHostPort mongoHostPort)
     _ <- Mongo.access pipe Mongo.UnconfirmedWrites (pack mongoDb) $ Mongo.auth (pack mongoUsername) (pack mongoPassword)
-    return pipe    
+    return pipe

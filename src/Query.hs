@@ -6,21 +6,15 @@
 module Query(runQuery) where
 
 import Db
-import Data.Text (Text, pack)
+import Data.Text (Text, unpack)
 import Data.Maybe(fromJust)
-import Data.Monoid ((<>))
 import Protolude
 
 import GraphQL
 import GraphQL.API
 import GraphQL.Resolver (Handler, (:<>)(..))
 
-import           Database.MongoDB          ((=:))
 import qualified Database.MongoDB          as Mongo
-
-
-type Hello = Object "Hello" '[]
-  '[ Argument "who" Text :> Field "greeting" Text ]
 
 type Geo = Object "Geo" '[]
   '[Field "latitude" Double
@@ -39,8 +33,11 @@ type DatePrice = Object "DatePrice" '[]
   '[Field "price" Int32
   , Field "timestamp" Double]
 
-type OnSalePropertyList = Object "OnSalePropertyList" '[]
-  '[Field "onSaleProperties" (List OnSaleProperty)]
+type Query = Object "Query" '[]
+  '[ Field "onSaleProperties" (List OnSaleProperty)
+   , Argument "date" Text :> Field "onSalePropertiesForDate" (List OnSaleProperty)
+   , Field "onSaleDates" (List Text)
+   ]
 
 geoHandler :: Mongo.Document -> Handler IO Geo
 geoHandler doc = pure
@@ -95,11 +92,26 @@ onSalePropertyHandler doc = pure
   :<> pure (pure <$> Mongo.lookup "soldAt" doc)
   )
 
-onSalePropertyListHandler :: [Mongo.Document] -> Handler IO OnSalePropertyList
-onSalePropertyListHandler docs = pure $ do
-  pure $ fmap onSalePropertyHandler docs
+propertyListHandler :: Handler IO (List OnSaleProperty)
+propertyListHandler = do
+  docs <- allOnSaleProperties
+  pure (fmap onSalePropertyHandler docs)
+
+propertyListForDateHandler :: Text -> Handler IO (List OnSaleProperty)
+propertyListForDateHandler date = do
+  docs <- onSaleNewPropertiesForDate (unpack date)
+  pure (fmap onSalePropertyHandler docs)  
+
+onSaleDatesHandler :: Handler IO (List Text)
+onSaleDatesHandler = do
+  dates <- onSalePropertyDates
+  pure (fmap pure dates)
+
+root :: Handler IO Query
+root = pure (   propertyListHandler
+              :<> propertyListForDateHandler
+              :<> onSaleDatesHandler
+              )          
 
 runQuery :: Text -> IO Response
-runQuery query = do 
-  docs <- allOnSaleProperties
-  interpretAnonymousQuery @OnSalePropertyList (onSalePropertyListHandler docs) query
+runQuery = interpretAnonymousQuery @Query root
