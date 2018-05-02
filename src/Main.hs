@@ -15,11 +15,12 @@ import           Network.Wai
 import           Network.Wai.Handler.Warp  (run)
 import           Query                     (runQuery)
 import           Token                     (AuthConfig (..), verifyJwt)
-
+--withAuth request
+--("POST", ["graphql"]) -> withAuth request (graphQl request) >>= respond
 app :: Application
 app request respond =
     case (requestMethod request, pathInfo request) of
-        ("POST", ["graphql"]) -> withAuth request (graphQl request) >>= respond
+        ("POST", ["graphql"]) -> (graphQl request) >>= respond
         ("OPTIONS", _) -> optionsResponse >>= respond
         (_, path) -> do
             response <- notFound

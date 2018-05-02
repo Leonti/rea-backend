@@ -42,21 +42,16 @@ onSalePropertiesForDateAction date = Mongo.rest =<< Mongo.find (Mongo.select
 onSalePropertyDatesAction :: Mongo.Action IO [Mongo.Value]
 onSalePropertyDatesAction = Mongo.distinct "extractedDate" (Mongo.select [] "properties")
 
+-- db.getCollection('processedOnSaleProperties').find({extractedDate: "2018-4-8", $where: "this.datesPrices.length == 2"})
 onSaleExistingPropertiesBeforeDateAction :: String -> [String] -> Mongo.Action IO [Mongo.Document]
 onSaleExistingPropertiesBeforeDateAction date links = Mongo.rest =<< Mongo.find (Mongo.select
     [ "extractedDate" =: ["$lt" =: date]
     , "$or" =: fmap (\link -> ["link" =: link]) links
-     ] "properties") {Mongo.project = ["link" =: (1 :: Int), "_id" =: (0 :: Int)]}
+     ] "processedOnSaleProperties") {Mongo.project = ["link" =: (1 :: Int), "_id" =: (0 :: Int)]}
 
 onSaleNewPropertiesForDateAction :: String -> Mongo.Action IO [Mongo.Document]
-onSaleNewPropertiesForDateAction date = do
-    propertiesForDate <- onSalePropertiesForDateAction date
-    let linksForTheDate = fmap (Mongo.lookup "link") propertiesForDate
-    existingProperties <- onSaleExistingPropertiesBeforeDateAction date linksForTheDate
-    let existingLinks = fmap (Mongo.lookup "link") existingProperties
-    let newLinks = linksForTheDate \\ existingLinks
-    let newProperties = Data.List.filter (\p -> Mongo.lookup "link" p `Data.List.elem` newLinks) propertiesForDate
-    return newProperties
+onSaleNewPropertiesForDateAction date =  Mongo.rest =<< Mongo.find (Mongo.select
+    [ "firstOnSale" =: date ] "processedOnSaleProperties")
 
 documentsToBS :: [Mongo.Document] -> BS.ByteString
 documentsToBS documents = A.encode (fmap fromDocument documents)
