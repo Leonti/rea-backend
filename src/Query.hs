@@ -93,25 +93,22 @@ onSalePropertyHandler doc = pure
   )
 
 propertyListHandler :: Handler IO (List OnSaleProperty)
-propertyListHandler = do
-  docs <- allOnSaleProperties
-  pure (fmap onSalePropertyHandler docs)
+propertyListHandler =
+  fmap onSalePropertyHandler <$> allOnSaleProperties
 
 propertyListForDateHandler :: Text -> Handler IO (List OnSaleProperty)
-propertyListForDateHandler date = do
-  docs <- onSaleNewPropertiesForDate (unpack date)
-  pure (fmap onSalePropertyHandler docs)  
+propertyListForDateHandler date =
+  fmap onSalePropertyHandler <$> onSaleNewPropertiesForDate (unpack date)
 
 onSaleDatesHandler :: Handler IO (List Text)
-onSaleDatesHandler = do
-  dates <- onSalePropertyDates
-  pure (fmap pure dates)
+onSaleDatesHandler =
+  fmap pure <$> onSalePropertyDates
 
 root :: Handler IO Query
 root = pure (   propertyListHandler
               :<> propertyListForDateHandler
               :<> onSaleDatesHandler
-              )          
+              )
 
 runQuery :: Text -> IO Response
 runQuery = interpretAnonymousQuery @Query root
