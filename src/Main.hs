@@ -1,5 +1,3 @@
-{-# LANGUAGE DeriveAnyClass    #-}
-{-# LANGUAGE DeriveGeneric     #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 import qualified Data.Aeson                as A
@@ -14,13 +12,14 @@ import           Network.HTTP.Types.Header ()
 import           Network.Wai
 import           Network.Wai.Handler.Warp  (run)
 import           Query                     (runQuery)
+import           QueryParser               (GraphQlQuery (..), decodeQuery)
 import           Token                     (AuthConfig (..), verifyJwt)
 --withAuth request
 --("POST", ["graphql"]) -> withAuth request (graphQl request) >>= respond
 app :: Application
 app request respond =
     case (requestMethod request, pathInfo request) of
-        ("POST", ["graphql"]) -> (graphQl request) >>= respond
+        ("POST", ["graphql"]) -> graphQl request >>= respond
         ("OPTIONS", _) -> optionsResponse >>= respond
         (_, path) -> do
             response <- notFound
@@ -67,18 +66,16 @@ authConfig = AuthConfig
             , aud = "rea-backend"
             }
 
-newtype GraphQlQuery = GraphQlQuery
-  { query :: Text
-  } deriving (Show, Generic, A.FromJSON)
-
 graphQl :: Request -> IO Response
 graphQl request = do
   body <- requestBody request
-  let eitherQuery = A.eitherDecode (fromStrict body) :: Either String GraphQlQuery
+  let eitherQuery = decodeQuery (fromStrict body) :: Either String GraphQlQuery
   case eitherQuery of
     Right q -> do
         print eitherQuery
-        response <- A.encode <$> runQuery (replace "query " "" (query q))
+--        let vars = Map.singleton (varDateName) (ValueString "bar")
+-- replace "query " ""
+        response <- A.encode <$> runQuery (query q) (variableValues q)
         return $ toJsonResponse response
     Left e -> do
         print e

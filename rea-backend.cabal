@@ -18,7 +18,8 @@ executable rea-backend
   default-language:    Haskell2010
   other-modules:
                       BsonAeson
-                    , Query 
+                    , QueryParser
+                    , Query
                     , Db
                     , Token
   build-depends:       base >= 4.7 && < 5
@@ -43,3 +44,4 @@ executable rea-backend
                         , case-insensitive >= 1.2.0.6
                         , protolude >= 0.2
                         , graphql-api == 0.3.0
+                        , containers == 0.5.11.0

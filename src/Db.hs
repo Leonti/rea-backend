@@ -29,6 +29,9 @@ onSalePropertiesForDate = actionToIO . onSalePropertiesForDateAction
 onSaleNewPropertiesForDate :: String -> IO [Mongo.Document]
 onSaleNewPropertiesForDate = actionToIO . onSaleNewPropertiesForDateAction
 
+newPropertiesCounts :: IO [Mongo.Document]
+newPropertiesCounts = actionToIO newPropertiesCountsAction
+
 allSoldPropertiesAction :: Mongo.Action IO [Mongo.Document]
 allSoldPropertiesAction = Mongo.rest =<< Mongo.find (Mongo.select [] "processedSoldProperties")
 
@@ -41,6 +44,11 @@ onSalePropertiesForDateAction date = Mongo.rest =<< Mongo.find (Mongo.select
 
 onSalePropertyDatesAction :: Mongo.Action IO [Mongo.Value]
 onSalePropertyDatesAction = Mongo.distinct "extractedDate" (Mongo.select [] "properties")
+
+newPropertiesCountsAction :: Mongo.Action IO [Mongo.Document]
+newPropertiesCountsAction = Mongo.aggregate "processedOnSaleProperties"
+  [["$group" =: ["_id" =: ("$firstOnSale" :: String), "count" =: ["$sum" =: (1 :: Int)]]]
+  ]
 
 -- db.getCollection('processedOnSaleProperties').find({extractedDate: "2018-4-8", $where: "this.datesPrices.length == 2"})
 onSaleExistingPropertiesBeforeDateAction :: String -> [String] -> Mongo.Action IO [Mongo.Document]
