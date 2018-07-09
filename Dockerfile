@@ -1,6 +1,13 @@
-FROM alpine:3.6
-
-RUN apk add --no-cache --update curl zip bash
+FROM ubuntu:18.04
+RUN apt-get update && \
+    apt-get install -y ca-certificates && \
+    apt-get install -y libgnutls30 && \
+    apt-get install -y netbase && \
+    apt-get -y autoremove && \
+    apt-get -y clean && \
+    rm -rf /var/lib/apt/lists/* && \
+    rm -rf /tmp/* && \
+    rm -rf /var/tmp/*
 
 WORKDIR /root
 
