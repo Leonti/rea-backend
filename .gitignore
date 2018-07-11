@@ -1,5 +1,6 @@
 .stack-work/
 .DS_Store
+run-locally
 config.sh
 rea-backend.aux
 rea-backend.hp
