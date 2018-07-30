@@ -20,11 +20,17 @@ allSoldProperties = actionToIO allSoldPropertiesAction
 onSalePropertyDates :: IO [Text]
 onSalePropertyDates =  fmap (\x -> textValue <$> x) (actionToIO onSalePropertyDatesAction)
 
+soldPropertyDatesCounts :: IO [Mongo.Document]
+soldPropertyDatesCounts = actionToIO soldPropertyDatesAction
+
 textValue :: Mongo.Value -> Text
 textValue v = fromJust (Mongo.cast' v :: Maybe Text)
 
 onSalePropertiesForDate :: String -> IO [Mongo.Document]
 onSalePropertiesForDate = actionToIO . onSalePropertiesForDateAction
+
+soldPropertiesForDate :: String -> IO [Mongo.Document]
+soldPropertiesForDate = actionToIO . soldPropertiesForDateAction
 
 onSaleNewPropertiesForDate :: String -> IO [Mongo.Document]
 onSaleNewPropertiesForDate = actionToIO . onSaleNewPropertiesForDateAction
@@ -42,8 +48,17 @@ onSalePropertiesForDateAction :: String -> Mongo.Action IO [Mongo.Document]
 onSalePropertiesForDateAction date = Mongo.rest =<< Mongo.find (Mongo.select
     [ "extractedDate" =: date ] "processedOnSaleProperties")
 
+soldPropertiesForDateAction :: String -> Mongo.Action IO [Mongo.Document]
+soldPropertiesForDateAction date = Mongo.rest =<< Mongo.find (Mongo.select
+    [ "soldAt" =: date ] "processedSoldProperties")
+
 onSalePropertyDatesAction :: Mongo.Action IO [Mongo.Value]
 onSalePropertyDatesAction = Mongo.distinct "extractedDate" (Mongo.select [] "properties")
+
+soldPropertyDatesAction :: Mongo.Action IO [Mongo.Document]
+soldPropertyDatesAction = Mongo.aggregate "processedSoldProperties"
+  [["$group" =: ["_id" =: ("$soldAt" :: String), "count" =: ["$sum" =: (1 :: Int)]]]
+  ]
 
 newPropertiesCountsAction :: Mongo.Action IO [Mongo.Document]
 newPropertiesCountsAction = Mongo.aggregate "processedOnSaleProperties"

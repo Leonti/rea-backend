@@ -49,6 +49,9 @@ type Query = Object "Query" '[]
   '[ Field "onSaleProperties" (List OnSaleProperty)
    , Argument "date" Text :> Field "onSalePropertiesForDate" (List OnSaleProperty)
    , Field "onSaleDates" (List DateCount)
+   , Field "soldProperties" (List SoldProperty)
+   , Argument "date" Text :> Field "soldPropertiesForDate" (List SoldProperty)
+   , Field "soldDates" (List DateCount)
    ]
 
 geoHandler :: Mongo.Document -> Handler IO Geo
@@ -87,6 +90,7 @@ type OnSaleProperty = Object "OnSaleProperty" '[]
   , Field "salePrice" (Maybe Int32)
   , Field "soldAt" (Maybe Text)
   ]
+
 onSalePropertyHandler :: Mongo.Document -> Handler IO OnSaleProperty
 onSalePropertyHandler doc = pure
   (   pure (distancesHandler <$> Mongo.lookup "distances" doc)
@@ -104,6 +108,31 @@ onSalePropertyHandler doc = pure
   :<> pure (pure <$> Mongo.lookup "soldAt" doc)
   )
 
+type SoldProperty = Object "SoldProperty" '[]
+  '[Field "distances" (Maybe Distances)
+  , Field "geo" (Maybe Geo)
+  , Field "link" Text
+  , Field "bedrooms" Int32
+  , Field "bathrooms" Int32
+  , Field "cars" Int32
+  , Field "location" Text
+  , Field "price" Int32
+  , Field "soldAt" Text
+  ]
+
+soldPropertyHandler :: Mongo.Document -> Handler IO SoldProperty
+soldPropertyHandler doc = pure
+  (   pure (distancesHandler <$> Mongo.lookup "distances" doc)
+  :<> pure (geoHandler <$> Mongo.lookup "geo" doc)
+  :<> pure (fromJust $ Mongo.lookup "link" doc)
+  :<> pure (fromJust $ Mongo.lookup "bedrooms" doc)
+  :<> pure (fromJust $ Mongo.lookup "bathrooms" doc)
+  :<> pure (fromJust $ Mongo.lookup "cars" doc)
+  :<> pure (fromJust $ Mongo.lookup "location" doc)
+  :<> pure (fromJust $ Mongo.lookup "price" doc)
+  :<> pure (fromJust $ Mongo.lookup "soldAt" doc)
+  )
+
 propertyListHandler :: Handler IO (List OnSaleProperty)
 propertyListHandler =
   fmap onSalePropertyHandler <$> allOnSaleProperties
@@ -111,6 +140,14 @@ propertyListHandler =
 propertyListForDateHandler :: Text -> Handler IO (List OnSaleProperty)
 propertyListForDateHandler date =
   fmap onSalePropertyHandler <$> onSaleNewPropertiesForDate (unpack date)
+
+soldPropertyListForDateHandler :: Text -> Handler IO (List SoldProperty)
+soldPropertyListForDateHandler date =
+  fmap soldPropertyHandler <$> soldPropertiesForDate (unpack date)
+
+soldPropertyListHandler :: Handler IO (List SoldProperty)
+soldPropertyListHandler =
+  fmap soldPropertyHandler <$> allSoldProperties
 
 extractCount :: Mongo.Document -> Int32
 extractCount doc = fromMaybe 0 (Mongo.lookup "count" doc)
@@ -123,16 +160,28 @@ onSaleDateHandler counts date = pure
   (   pure date
   :<> pure (fromMaybe 0 (countForDate counts date)))
 
+soldDateCountHandler :: Mongo.Document -> Handler IO DateCount
+soldDateCountHandler doc = pure
+  (   pure (fromJust $ Mongo.lookup "_id" doc)
+  :<> pure (fromJust $ Mongo.lookup "count" doc)
+  )
+
 onSaleDatesHandler :: Handler IO (List DateCount)
 onSaleDatesHandler = do
   dates <- onSalePropertyDates
   counts <- newPropertiesCounts
   return $ fmap (onSaleDateHandler counts) dates
 
+soldDatesHandler :: Handler IO (List DateCount)
+soldDatesHandler = fmap soldDateCountHandler <$> soldPropertyDatesCounts
+
 root :: Handler IO Query
 root = pure (   propertyListHandler
               :<> propertyListForDateHandler
               :<> onSaleDatesHandler
+              :<> soldPropertyListHandler
+              :<> soldPropertyListForDateHandler
+              :<> soldDatesHandler
               )
 test = vars
   where
